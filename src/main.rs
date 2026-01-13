@@ -1,5 +1,14 @@
 use clap::Parser;
 use std::{collections::HashMap, fs::File, io::BufReader, path::PathBuf};
+use std::{
+    io::{self, Write},
+    path::PathBuf,
+};
+
+use crate::{
+    index::WorkingSet,
+    parser::{CmdParser, Visitor},
+};
 
 mod index;
 mod parser;
@@ -29,8 +38,10 @@ fn main() -> std::io::Result<()> {
 
     println!("Working set loaded.");
     println!("Available columns: {:?}", set.columns.keys());
+    println!(" ('exit' to quit): ");
     loop {
-        println!("Enter column name to index (or 'exit' to quit): ");
+        print!("> ");
+        let index_visitor = IndexVisitor { set: &set };
 
         let mut input = String::new();
         let _ = std::io::stdin().read_line(&mut input)?;
@@ -40,18 +51,55 @@ fn main() -> std::io::Result<()> {
         }
 
         println!("Searching for column: {}", input.trim());
-        match set.columns.get(input.trim()) {
-            Some(idx) => {
-                for v in set.values.iter() {
-                    println!("{}", v[*idx]);
-                }
+        let parsed = CmdParser::new();
+
+        let columns = parsed.parse_string(input.trim()).accept(&index_visitor);
+
+        let stdout = io::stdout();
+        let mut out = stdout.lock();
+        for val in set.values.iter() {
+            let mut first = true;
+
+            for &col in columns.iter() {
+                out.write_all(b" | ")?;
+                out.write_all(val[col].as_bytes())?;
             }
-            None => println!("Column not found."),
+
+            out.write_all(b"\n")?;
         }
     }
 }
 
-struct WorkingSet {
-    columns: HashMap<String, usize>,
-    values: Vec<Vec<String>>,
+struct IndexVisitor<'a> {
+    set: &'a WorkingSet,
+}
+
+impl Visitor<Vec<usize>> for IndexVisitor<'_> {
+    fn visit(&self, expr: &parser::Statement) -> Vec<usize> {
+        match expr {
+            parser::Statement::Get(expr, _, _) => {
+                let get_columns = get_column_names(expr);
+
+                get_columns
+                    .iter()
+                    .map(|col| {
+                        let val = self.set.columns.get(col).expect("Missing coulmn");
+                        *val
+                    })
+                    .collect()
+            }
+        }
+    }
+}
+
+fn get_column_names(expr: &parser::Expr) -> Vec<String> {
+    match expr {
+        parser::Expr::Literal(token) => vec![token.literal.to_string()],
+        parser::Expr::Multiple(left, right) => {
+            let mut names = get_column_names(left);
+            names.extend(get_column_names(right));
+            names
+        }
+        _ => panic!("Invalid syntax"),
+    }
 }

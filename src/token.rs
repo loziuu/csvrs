@@ -34,6 +34,7 @@ impl FromStr for TokenType {
     }
 }
 
+#[derive(Debug)]
 pub(crate) struct Token {
     pub(crate) t: TokenType,
     pub(crate) literal: TokenLiteral,
@@ -44,6 +45,14 @@ pub(crate) struct Token {
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) enum TokenLiteral {
     Str(String),
+}
+
+impl ToString for TokenLiteral {
+    fn to_string(&self) -> String {
+        match self {
+            TokenLiteral::Str(s) => s.clone(),
+        }
+    }
 }
 
 impl Token {

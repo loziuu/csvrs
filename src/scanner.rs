@@ -14,7 +14,7 @@ enum State {
     EndCmd,
 }
 
-struct Scanner<'a> {
+pub(crate) struct Scanner<'a> {
     base: &'a [u8],
 
     start: usize,
@@ -47,7 +47,7 @@ impl<'a> Scanner<'a> {
         self.start = self.position;
         let mut value = vec![];
         loop {
-            match (self.peek(), dbg!(&self.state)) {
+            match (self.peek(), &self.state) {
                 (Some(b), State::StartCmd) if b.is_ascii_whitespace() => {
                     self.advance();
                 }
