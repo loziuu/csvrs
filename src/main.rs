@@ -58,8 +58,6 @@ fn main() -> std::io::Result<()> {
         let stdout = io::stdout();
         let mut out = stdout.lock();
         for val in set.values.iter() {
-            let mut first = true;
-
             for &col in columns.iter() {
                 out.write_all(b" | ")?;
                 out.write_all(val[col].as_bytes())?;
