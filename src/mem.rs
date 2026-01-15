@@ -1,8 +1,59 @@
+use crate::index::heap::{self, Heap, TOffset};
 use std::{collections::HashMap, fs::File, io::BufReader, path::PathBuf};
 
 pub(crate) struct WorkingSet {
     pub(crate) columns: HashMap<String, usize>,
     pub(crate) values: Vec<Vec<String>>,
+}
+
+pub(crate) struct RowWorkingSet {
+    pub(crate) rows: Vec<(usize, TOffset)>,
+    heap: Heap,
+}
+
+pub(crate) fn index_heap(buf: PathBuf) -> std::io::Result<RowWorkingSet> {
+    let mut heap = Heap::new();
+
+    if buf.is_file() {
+        let file = File::open(buf)?;
+
+        let mut csv_reader = csv::ReaderBuilder::new()
+            .delimiter(b';')
+            .from_reader(BufReader::new(file));
+
+        let mut columns = HashMap::new();
+        if !csv_reader.has_headers() {
+            panic!("CSV without headers not supported yet.");
+        }
+
+        csv_reader.headers().into_iter().for_each(|value| {
+            for (i, v) in value.iter().enumerate() {
+                columns.insert(v.trim().to_string(), i);
+            }
+        });
+
+        let mut rows = vec![];
+        for values in csv_reader.records() {
+            let v = values?;
+            let bytes = v.into_byte_record();
+
+            rows.push(heap.allocate(bytes.as_slice()));
+        }
+
+        Ok(RowWorkingSet { rows, heap })
+    } else {
+        panic!("Path is not a file. Directory scanning not implemented yet.");
+    }
+}
+
+pub(crate) fn read_all(set: &RowWorkingSet) {
+    for (block_id, offset) in &set.rows {
+        if let Some(bytes) = set.heap.read(*block_id, *offset) {
+            println!("{}", str::from_utf8(bytes).unwrap());
+        } else {
+            panic!("Failed to serialize bytes to utf8");
+        }
+    }
 }
 
 pub(crate) fn index(buf: PathBuf) -> std::io::Result<WorkingSet> {

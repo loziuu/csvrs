@@ -2,7 +2,7 @@
 /// TODO: Rename it to tokenizer.rs
 use std::str::FromStr;
 
-use crate::token::{Token, TokenType};
+use crate::query::token::{Token, TokenType};
 
 #[derive(Debug, PartialEq)]
 enum State {
@@ -97,7 +97,6 @@ impl<'a> Scanner<'a> {
                     self.state = State::StartCmd;
                     break;
                 }
-
                 (_, State::EndCmd) => {
                     return Token::new(self.start, TokenType::Eof, "".to_string());
                 }
@@ -130,7 +129,7 @@ impl<'a> Scanner<'a> {
 
 #[cfg(test)]
 mod tests {
-    use crate::{
+    use crate::query::{
         scanner::Scanner,
         token::{TokenLiteral, TokenType},
     };

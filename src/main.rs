@@ -1,19 +1,16 @@
+use crate::query::parser;
 use clap::Parser;
-use std::{collections::HashMap, fs::File, io::BufReader, path::PathBuf};
-use std::{
-    io::{self, Write},
-    path::PathBuf,
-};
+use std::io::{self, Write};
+use std::path::PathBuf;
 
 use crate::{
-    index::WorkingSet,
-    parser::{CmdParser, Visitor},
+    mem::WorkingSet,
+    query::parser::{CmdParser, Visitor},
 };
 
-mod index;
-mod parser;
-mod scanner;
-mod token;
+pub mod index;
+pub mod mem;
+pub mod query;
 
 #[derive(Parser, Debug)]
 struct Args {
@@ -34,7 +31,18 @@ fn main() -> std::io::Result<()> {
     let args = Args::parse();
     let buf: PathBuf = args.dir.into();
 
-    let set = index::index(buf)?;
+    let set = mem::index_heap(buf)?;
+
+    mem::read_all(&set);
+
+    Ok(())
+}
+
+fn col_main() -> std::io::Result<()> {
+    let args = Args::parse();
+    let buf: PathBuf = args.dir.into();
+
+    let set = mem::index(buf)?;
 
     println!("Working set loaded.");
     println!("Available columns: {:?}", set.columns.keys());
