@@ -1,13 +1,12 @@
-use crate::query::parser;
+use crate::executor::{ColumnarExecutor, IndexVisitor};
+use crate::mem::read_columnar;
 use clap::Parser;
 use std::io::{self, Write};
 use std::path::PathBuf;
 
-use crate::{
-    mem::WorkingSet,
-    query::parser::{CmdParser, Visitor},
-};
+use crate::query::parser::CmdParser;
 
+mod executor;
 pub mod index;
 pub mod mem;
 pub mod query;
@@ -31,14 +30,57 @@ fn main() -> std::io::Result<()> {
     let args = Args::parse();
     let buf: PathBuf = args.dir.into();
 
-    let set = mem::index_heap(buf)?;
+    let set = mem::index_heap_columnar(buf)?;
+
+    println!("Working set loaded.");
+    println!("Available columns: {:?}", set.columns.keys());
+    println!(" ('exit' to quit): ");
+    loop {
+        print!("> ");
+        let index_visitor = ColumnarExecutor { set: &set };
+
+        let mut input = String::new();
+        let _ = std::io::stdin().read_line(&mut input)?;
+
+        if input.trim() == "exit" {
+            return Ok(());
+        }
+
+        println!("Searching for column: {}", input.trim());
+        let parsed = CmdParser::new();
+
+        let columns = parsed.parse_string(input.trim()).accept(&index_visitor);
+
+        let stdout = io::stdout();
+        let mut out = stdout.lock();
+
+        let mut cnt = 0;
+        for c in columns {
+            cnt += 1;
+
+            for e in c {
+                out.write_all(b" | ")?;
+                out.write_all(read_columnar(&set, e.0, e.1)).unwrap();
+            }
+            out.write_all(b"\n")?;
+        }
+        out.write_all(format!("Got {} records.", cnt).as_bytes())?;
+        out.write_all(b"\n")?;
+    }
+}
+
+fn row_main() -> std::io::Result<()> {
+    let args = Args::parse();
+    let buf: PathBuf = args.dir.into();
+
+    let set = mem::index_heap_row(buf)?;
 
     mem::read_all(&set);
 
     Ok(())
 }
 
-fn col_main() -> std::io::Result<()> {
+fn hashmap_main() -> std::io::Result<()> {
     let args = Args::parse();
     let buf: PathBuf = args.dir.into();
 
@@ -73,39 +115,5 @@ fn col_main() -> std::io::Result<()> {
 
             out.write_all(b"\n")?;
         }
-    }
-}
-
-struct IndexVisitor<'a> {
-    set: &'a WorkingSet,
-}
-
-impl Visitor<Vec<usize>> for IndexVisitor<'_> {
-    fn visit(&self, expr: &parser::Statement) -> Vec<usize> {
-        match expr {
-            parser::Statement::Get(expr, _, _) => {
-                let get_columns = get_column_names(expr);
-
-                get_columns
-                    .iter()
-                    .map(|col| {
-                        let val = self.set.columns.get(col).expect("Missing coulmn");
-                        *val
-                    })
-                    .collect()
-            }
-        }
-    }
-}
-
-fn get_column_names(expr: &parser::Expr) -> Vec<String> {
-    match expr {
-        parser::Expr::Literal(token) => vec![token.literal.to_string()],
-        parser::Expr::Multiple(left, right) => {
-            let mut names = get_column_names(left);
-            names.extend(get_column_names(right));
-            names
-        }
-        _ => panic!("Invalid syntax"),
     }
 }

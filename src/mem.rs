@@ -11,7 +11,62 @@ pub(crate) struct RowWorkingSet {
     heap: Heap,
 }
 
-pub(crate) fn index_heap(buf: PathBuf) -> std::io::Result<RowWorkingSet> {
+pub(crate) struct ColumnsWorkingSet {
+    pub(crate) columns: HashMap<String, usize>,
+    pub(crate) data: Vec<Heap>,
+    pub(crate) rows: Vec<Vec<(usize, TOffset)>>,
+}
+
+pub(crate) fn read_columnar(set: &ColumnsWorkingSet, heap: usize, ptr: (usize, TOffset)) -> &[u8] {
+    let heap = &set.data[heap];
+    heap.read(ptr.0, ptr.1).unwrap()
+}
+
+pub(crate) fn index_heap_columnar(buf: PathBuf) -> std::io::Result<ColumnsWorkingSet> {
+    if buf.is_file() {
+        let mut columns = HashMap::new();
+
+        let file = File::open(buf)?;
+        let mut csv_reader = csv::ReaderBuilder::new()
+            .delimiter(b';')
+            .from_reader(BufReader::new(file));
+        if !csv_reader.has_headers() {
+            panic!("CSV without headers not supported yet.");
+        }
+
+        csv_reader.headers().into_iter().for_each(|value| {
+            for (i, v) in value.iter().enumerate() {
+                columns.insert(v.trim().to_string(), i);
+            }
+        });
+
+        let mut data = Vec::with_capacity(columns.len());
+        for _ in 0..columns.len() {
+            data.push(Heap::new());
+        }
+
+        let mut rows = Vec::with_capacity(columns.len());
+        for values in csv_reader.records() {
+            let mut row = vec![];
+            let record = values?;
+
+            for (i, value) in record.iter().enumerate() {
+                row.push(data[i].allocate(value.as_bytes()));
+            }
+            rows.push(row);
+        }
+
+        Ok(ColumnsWorkingSet {
+            columns,
+            data,
+            rows,
+        })
+    } else {
+        panic!("Path is not a file. Directory scanning not implemented yet.");
+    }
+}
+
+pub(crate) fn index_heap_row(buf: PathBuf) -> std::io::Result<RowWorkingSet> {
     let mut heap = Heap::new();
 
     if buf.is_file() {

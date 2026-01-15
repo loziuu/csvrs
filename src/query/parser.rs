@@ -32,7 +32,6 @@ impl CmdParser {
             self.tokens.push(Rc::new(token));
             token = scanner.next_token();
         }
-        dbg!(&self.tokens);
 
         self.statement()
     }
