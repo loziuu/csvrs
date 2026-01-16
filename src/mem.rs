@@ -1,4 +1,4 @@
-use crate::index::heap::{self, Heap, TOffset};
+use crate::index::heap::{BlockOffset, BufferPool};
 use std::{collections::HashMap, fs::File, io::BufReader, path::PathBuf};
 
 pub(crate) struct WorkingSet {
@@ -7,17 +7,21 @@ pub(crate) struct WorkingSet {
 }
 
 pub(crate) struct RowWorkingSet {
-    pub(crate) rows: Vec<(usize, TOffset)>,
-    heap: Heap,
+    pub(crate) rows: Vec<(usize, BlockOffset)>,
+    heap: BufferPool,
 }
 
 pub(crate) struct ColumnsWorkingSet {
     pub(crate) columns: HashMap<String, usize>,
-    pub(crate) data: Vec<Heap>,
-    pub(crate) rows: Vec<Vec<(usize, TOffset)>>,
+    pub(crate) data: Vec<BufferPool>,
+    pub(crate) rows: Vec<Vec<(usize, BlockOffset)>>,
 }
 
-pub(crate) fn read_columnar(set: &ColumnsWorkingSet, heap: usize, ptr: (usize, TOffset)) -> &[u8] {
+pub(crate) fn read_columnar(
+    set: &ColumnsWorkingSet,
+    heap: usize,
+    ptr: (usize, BlockOffset),
+) -> &[u8] {
     let heap = &set.data[heap];
     heap.read(ptr.0, ptr.1).unwrap()
 }
@@ -42,7 +46,7 @@ pub(crate) fn index_heap_columnar(buf: PathBuf) -> std::io::Result<ColumnsWorkin
 
         let mut data = Vec::with_capacity(columns.len());
         for _ in 0..columns.len() {
-            data.push(Heap::new());
+            data.push(BufferPool::new());
         }
 
         let mut rows = Vec::with_capacity(columns.len());
@@ -67,7 +71,7 @@ pub(crate) fn index_heap_columnar(buf: PathBuf) -> std::io::Result<ColumnsWorkin
 }
 
 pub(crate) fn index_heap_row(buf: PathBuf) -> std::io::Result<RowWorkingSet> {
-    let mut heap = Heap::new();
+    let mut heap = BufferPool::new();
 
     if buf.is_file() {
         let file = File::open(buf)?;

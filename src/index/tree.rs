@@ -1,3 +1,5 @@
+use crate::index::heap::BlockOffset;
+
 const MAX_NODE_SIZE: usize = 8096;
 
 struct MemManager {
@@ -23,7 +25,7 @@ impl MemManager {
     }
 }
 
-// May add internal if siblings pointers are benefitcial
+// May add internal if siblings pointers are beneficial
 enum Node {
     Internal(Internal),
     Leaf(Leaf),
@@ -57,7 +59,7 @@ struct LeafEntry {
 /// Pointer to data page containing the actual data
 struct Tid {
     block_id: usize,
-    offset: u16,
+    offset: BlockOffset,
 }
 
 impl Internal {

@@ -630,4 +630,69 @@ mod tests {
         let t = scanner.next_token();
         assert_eq!(t.t, TokenType::Eof);
     }
+
+    #[test]
+    fn test_where_with_and_or() {
+        let input = r#"get name @ users where first = "john" and last = doe or language = "pl""#;
+        let mut scanner = Scanner::new(input);
+
+        let t = scanner.next_token();
+        assert_eq!(t.t, TokenType::Get);
+
+        let t = scanner.next_token();
+        assert_eq!(t.t, TokenType::Identifier);
+        assert_eq!(t.literal, TokenLiteral::Str("name".to_string()));
+
+        let t = scanner.next_token();
+        assert_eq!(t.t, TokenType::At);
+
+        let t = scanner.next_token();
+        assert_eq!(t.t, TokenType::Identifier);
+        assert_eq!(t.literal, TokenLiteral::Str("users".to_string()));
+
+        let t = scanner.next_token();
+        assert_eq!(t.t, TokenType::Where);
+
+        let t = scanner.next_token();
+        assert_eq!(t.t, TokenType::Identifier);
+        assert_eq!(t.literal, TokenLiteral::Str("first".to_string()));
+
+        let t = scanner.next_token();
+        assert_eq!(t.t, TokenType::Equals);
+
+        let t = scanner.next_token();
+        assert_eq!(t.t, TokenType::QuotedValue);
+        assert_eq!(t.literal, TokenLiteral::Str("john".to_string()));
+
+        let t = scanner.next_token();
+        assert_eq!(t.t, TokenType::And);
+
+        let t = scanner.next_token();
+        assert_eq!(t.t, TokenType::Identifier);
+        assert_eq!(t.literal, TokenLiteral::Str("last".to_string()));
+
+        let t = scanner.next_token();
+        assert_eq!(t.t, TokenType::Equals);
+
+        let t = scanner.next_token();
+        assert_eq!(t.t, TokenType::Identifier);
+        assert_eq!(t.literal, TokenLiteral::Str("doe".to_string()));
+
+        let t = scanner.next_token();
+        assert_eq!(t.t, TokenType::Or);
+
+        let t = scanner.next_token();
+        assert_eq!(t.t, TokenType::Identifier);
+        assert_eq!(t.literal, TokenLiteral::Str("language".to_string()));
+
+        let t = scanner.next_token();
+        assert_eq!(t.t, TokenType::Equals);
+
+        let t = scanner.next_token();
+        assert_eq!(t.t, TokenType::QuotedValue);
+        assert_eq!(t.literal, TokenLiteral::Str("pl".to_string()));
+
+        let t = scanner.next_token();
+        assert_eq!(t.t, TokenType::Eof);
+    }
 }

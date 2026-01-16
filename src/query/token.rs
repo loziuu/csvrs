@@ -11,6 +11,10 @@ pub(crate) enum TokenType {
     Equals,
     At,
 
+    /// Conditionals
+    And,
+    Or,
+
     /// Others
     Identifier,
     QuotedValue,
@@ -29,6 +33,8 @@ impl FromStr for TokenType {
             "=" => Ok(TokenType::Equals),
             "!" => Ok(TokenType::Bang),
             "@" => Ok(TokenType::At),
+            "and" => Ok(TokenType::And),
+            "or" => Ok(TokenType::Or),
             _ => Ok(TokenType::Identifier),
         }
     }

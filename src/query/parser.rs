@@ -1,3 +1,4 @@
+use core::panic;
 use std::rc::Rc;
 
 use crate::{
@@ -20,6 +21,10 @@ impl CmdParser {
             tokens: vec![],
             current: 0,
         }
+    }
+
+    fn peek_expect(&self, token_type: TokenType) -> bool {
+        !self.finished() && self.current().t == token_type
     }
 
     // TODO: Make it Result<>
@@ -45,17 +50,47 @@ impl CmdParser {
     }
 
     fn get_statement(&mut self) -> Statement {
-        let expr = self.multiple();
+        let columns = self.multiple();
+        let mut tables = None;
+        let mut condition = None;
 
-        //if self.current().t == Eof {
-        Statement::Get(expr, None, None)
-        //}
+        if self.peek_expect(TokenType::At) {
+            self.consume();
+            tables = Some(self.term());
+        }
+
+        if self.peek_expect(TokenType::Where) {
+            self.consume();
+            condition = Some(self.conditional());
+        }
+
+        Statement::Get(columns, tables, condition)
+    }
+
+    fn conditional(&mut self) -> Expr {
+        let mut left = self.comparison();
+
+        while !self.finished() && matches!(self.current().t, TokenType::And | TokenType::Or) {
+            let operator = self.consume();
+            let right = self.comparison();
+            left = Expr::Conditional(Box::new(left), operator, Box::new(right));
+        }
+
+        left
+    }
+
+    fn comparison(&mut self) -> Expr {
+        let left = self.term();
+        let operator = self.consume_if(|t| matches!(t, TokenType::Equals));
+        let right = self.term();
+
+        Expr::Conditional(Box::new(left), operator, Box::new(right))
     }
 
     fn multiple(&mut self) -> Expr {
         let mut left = self.term();
 
-        while !self.finised()
+        while !self.finished()
             && matches!(
                 self.current().t,
                 TokenType::Identifier | TokenType::QuotedValue
@@ -77,7 +112,7 @@ impl CmdParser {
         }
     }
 
-    fn finised(&self) -> bool {
+    fn finished(&self) -> bool {
         self.current >= self.tokens.len()
     }
 
@@ -114,21 +149,31 @@ impl CmdParser {
         }
         token.clone()
     }
+
+    fn consume_if<F>(&mut self, predicate: F) -> Rc<Token>
+    where
+        F: Fn(&TokenType) -> bool,
+    {
+        let token = self.consume();
+        if !predicate(&token.t) {
+            panic!("Parser Error: Unexpected token {:?}", token.t);
+        }
+        token
+    }
 }
 
 // TODO: Add it later: #[derive(Debug)]
 #[derive(Debug)]
 pub(crate) enum Expr {
     Literal(Rc<Token>),
-    Term(Box<Expr>),
     Multiple(Box<Expr>, Box<Expr>),
-    Conditional(Box<Expr>, Rc<Token>, Rc<Expr>),
+    Conditional(Box<Expr>, Rc<Token>, Box<Expr>),
 }
 
 #[derive(Debug)]
 pub(crate) enum Statement {
     /// "get" token ("," + token)* "@" token "where" conditional_expr
-    Get(Expr, Option<Token>, Option<Expr>),
+    Get(Expr, Option<Expr>, Option<Expr>),
 }
 
 impl Statement {
@@ -137,21 +182,138 @@ impl Statement {
     }
 }
 
-pub trait Visitor<R: Sized> {
+pub(crate) trait Visitor<R: Sized> {
     fn visit(&self, expr: &Statement) -> R;
 }
 
-// TODO: add proper tests
 #[cfg(test)]
 mod tests {
-    use crate::parser::CmdParser;
+    use crate::query::parser::{CmdParser, Expr, Statement};
 
-    //#[test]
-    fn test_simple_query() {
+    fn extract_columns(expr: &Expr) -> Vec<String> {
+        match expr {
+            Expr::Literal(token) => vec![token.literal.to_string()],
+            Expr::Multiple(left, right) => {
+                let mut cols = extract_columns(left);
+                cols.extend(extract_columns(right));
+                cols
+            }
+            _ => vec![],
+        }
+    }
+
+    #[test]
+    fn test_get_single_column() {
         let p = CmdParser::new();
+        let statement = p.parse_string("get name");
 
+        match statement {
+            Statement::Get(expr, None, None) => {
+                let cols = extract_columns(&expr);
+                assert_eq!(cols, vec!["name"]);
+            }
+            _ => unreachable!(),
+        }
+    }
+
+    #[test]
+    fn test_get_multiple_columns() {
+        let p = CmdParser::new();
         let statement = p.parse_string("get name age city");
 
-        dbg!(statement);
+        match statement {
+            Statement::Get(expr, None, None) => {
+                let cols = extract_columns(&expr);
+                assert_eq!(cols, vec!["name", "age", "city"]);
+            }
+            _ => unreachable!(),
+        }
+    }
+
+    #[test]
+    fn test_ast_structure_two_columns() {
+        let p = CmdParser::new();
+        let statement = p.parse_string("get a b");
+
+        match statement {
+            Statement::Get(Expr::Multiple(left, right), None, None) => {
+                assert!(matches!(left.as_ref(), Expr::Literal(_)));
+                assert!(matches!(right.as_ref(), Expr::Literal(_)));
+            }
+            _ => unreachable!(),
+        }
+    }
+
+    fn extract_table(expr: &Expr) -> String {
+        match expr {
+            Expr::Literal(token) => token.literal.to_string(),
+            _ => panic!("Expected literal for table name"),
+        }
+    }
+
+    #[test]
+    fn test_get_with_table_identifier() {
+        let p = CmdParser::new();
+        let statement = p.parse_string("get name @ users");
+
+        dbg!(&statement);
+        match statement {
+            Statement::Get(cols, Some(table), None) => {
+                assert_eq!(extract_columns(&cols), vec!["name"]);
+                assert_eq!(extract_table(&table), "users");
+            }
+            _ => unreachable!(),
+        }
+    }
+
+    #[test]
+    fn test_get_with_table_quoted() {
+        let p = CmdParser::new();
+        let statement = p.parse_string("get name @ \"users\"");
+
+        match statement {
+            Statement::Get(cols, Some(table), None) => {
+                assert_eq!(extract_columns(&cols), vec!["name"]);
+                assert_eq!(extract_table(&table), "users");
+            }
+            _ => unreachable!(),
+        }
+    }
+
+    #[test]
+    #[should_panic(expected = "Parser Error")]
+    fn test_empty_get_panics() {
+        let p = CmdParser::new();
+        p.parse_string("get");
+    }
+
+    #[test]
+    #[should_panic(expected = "Parser Error")]
+    fn test_invalid_statement_panics() {
+        let p = CmdParser::new();
+        p.parse_string("select name");
+    }
+
+    #[test]
+    fn test_get_with_where_condition() {
+        let p = CmdParser::new();
+        let statement = p.parse_string(r#"get name @ users where first = "john""#);
+
+        match statement {
+            Statement::Get(cols, Some(table), Some(condition)) => {
+                assert_eq!(extract_columns(&cols), vec!["name"]);
+                assert_eq!(extract_table(&table), "users");
+
+                match condition {
+                    Expr::Conditional(left, op, right) => {
+                        assert_eq!(extract_table(&left), "first");
+                        assert_eq!(op.literal.to_string(), "=");
+                        assert_eq!(extract_table(&right), "john");
+                    }
+                    _ => unreachable!(),
+                }
+            }
+            _ => unreachable!(),
+        }
     }
 }
