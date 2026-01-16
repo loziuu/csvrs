@@ -1,4 +1,4 @@
-use crate::executor::{ColumnarExecutor, IndexVisitor};
+use crate::executor::ColumnarExecutor;
 use crate::mem::read_columnar;
 use clap::Parser;
 use std::io::{self, Write};
@@ -35,8 +35,13 @@ fn main() -> std::io::Result<()> {
     println!("Working set loaded.");
     println!("Available columns: {:?}", set.columns.keys());
     println!(" ('exit' to quit): ");
+
+    let stdout = io::stdout();
     loop {
-        print!("> ");
+        let mut out = stdout.lock();
+        out.write_all(b"@> ").unwrap();
+        out.flush().unwrap();
+
         let index_visitor = ColumnarExecutor { set: &set };
 
         let mut input = String::new();
@@ -46,13 +51,17 @@ fn main() -> std::io::Result<()> {
             return Ok(());
         }
 
-        println!("Searching for column: {}", input.trim());
         let parsed = CmdParser::new();
+        let statement = parsed.parse_string(input.trim());
 
-        let columns = parsed.parse_string(input.trim()).accept(&index_visitor);
+        if statement.is_err() {
+            let err = statement.err().unwrap();
+            out.write_all(err.to_string().as_bytes()).unwrap();
+            out.write_all(b"\n")?;
+            continue;
+        }
 
-        let stdout = io::stdout();
-        let mut out = stdout.lock();
+        let columns = statement.unwrap().accept(&index_visitor);
 
         let mut cnt = 0;
         for c in columns {
@@ -66,54 +75,5 @@ fn main() -> std::io::Result<()> {
         }
         out.write_all(format!("Got {} records.", cnt).as_bytes())?;
         out.write_all(b"\n")?;
-    }
-}
-
-fn row_main() -> std::io::Result<()> {
-    let args = Args::parse();
-    let buf: PathBuf = args.dir.into();
-
-    let set = mem::index_heap_row(buf)?;
-
-    mem::read_all(&set);
-
-    Ok(())
-}
-
-fn hashmap_main() -> std::io::Result<()> {
-    let args = Args::parse();
-    let buf: PathBuf = args.dir.into();
-
-    let set = mem::index(buf)?;
-
-    println!("Working set loaded.");
-    println!("Available columns: {:?}", set.columns.keys());
-    println!(" ('exit' to quit): ");
-    loop {
-        print!("> ");
-        let index_visitor = IndexVisitor { set: &set };
-
-        let mut input = String::new();
-        let _ = std::io::stdin().read_line(&mut input)?;
-
-        if input.trim() == "exit" {
-            return Ok(());
-        }
-
-        println!("Searching for column: {}", input.trim());
-        let parsed = CmdParser::new();
-
-        let columns = parsed.parse_string(input.trim()).accept(&index_visitor);
-
-        let stdout = io::stdout();
-        let mut out = stdout.lock();
-        for val in set.values.iter() {
-            for &col in columns.iter() {
-                out.write_all(b" | ")?;
-                out.write_all(val[col].as_bytes())?;
-            }
-
-            out.write_all(b"\n")?;
-        }
     }
 }

@@ -2,7 +2,7 @@ use core::panic;
 
 use crate::{
     index::heap::BlockOffset,
-    mem::{ColumnsWorkingSet, WorkingSet, read_columnar},
+    mem::{ColumnsWorkingSet, read_columnar},
     query::parser::{self, Expr, Visitor},
     query::token::TokenType,
 };
@@ -61,7 +61,6 @@ impl ColumnarExecutor<'_> {
 
     fn build_comparison(&self, left: &Expr, right: &Expr) -> RowFilter {
         let col_name = self.parse_term(left);
-        dbg!(&col_name);
         let col_idx = *self
             .set
             .columns
@@ -122,10 +121,10 @@ impl Visitor<RowResult> for ColumnarExecutor<'_> {
                 let mut res = vec![];
                 for row in &self.set.rows {
                     // Apply WHERE filters
-                    if let Some(ref compound_filter) = filters {
-                        if !self.evaluate_filters(compound_filter, row) {
-                            continue;
-                        }
+                    if let Some(ref compound_filter) = filters
+                        && !self.evaluate_filters(compound_filter, row)
+                    {
+                        continue;
                     }
 
                     let mut obj = vec![];
@@ -150,27 +149,5 @@ fn get_column_names(expr: &parser::Expr) -> Vec<String> {
             names
         }
         _ => panic!("Invalid syntax"),
-    }
-}
-
-pub(crate) struct IndexVisitor<'a> {
-    pub(crate) set: &'a WorkingSet,
-}
-
-impl Visitor<Vec<usize>> for IndexVisitor<'_> {
-    fn visit(&self, expr: &parser::Statement) -> Vec<usize> {
-        match expr {
-            parser::Statement::Get(expr, _, _) => {
-                let get_columns = get_column_names(expr);
-
-                get_columns
-                    .iter()
-                    .map(|col| {
-                        let val = self.set.columns.get(col).expect("Missing coulmn");
-                        *val
-                    })
-                    .collect()
-            }
-        }
     }
 }

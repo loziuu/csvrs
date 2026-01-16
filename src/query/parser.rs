@@ -1,4 +1,3 @@
-use core::panic;
 use std::rc::Rc;
 
 use crate::{
@@ -9,6 +8,31 @@ use crate::{
 /// Return values from Statement.
 /// (Coulumns, Values)
 type ResultSet = (Vec<usize>, Vec<usize>);
+
+type ParserResult<T> = Result<T, ParserError>;
+
+impl std::error::Error for ParserError {}
+
+impl std::fmt::Display for ParserError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "At {}: {}", self.position, self.msg)
+    }
+}
+
+#[derive(Debug)]
+pub(crate) struct ParserError {
+    pub(crate) position: usize,
+    pub(crate) msg: String,
+}
+
+impl ParserError {
+    fn new(position: usize, msg: &str) -> ParserError {
+        ParserError {
+            position,
+            msg: msg.to_string(),
+        }
+    }
+}
 
 pub(crate) struct CmdParser {
     tokens: Vec<Rc<Token>>,
@@ -23,12 +47,12 @@ impl CmdParser {
         }
     }
 
-    fn peek_expect(&self, token_type: TokenType) -> bool {
-        !self.finished() && self.current().t == token_type
+    fn peek_expect(&self, token_type: TokenType) -> ParserResult<bool> {
+        Ok(!self.finished() && self.current()?.t == token_type)
     }
 
     // TODO: Make it Result<>
-    pub(crate) fn parse_string(mut self, command: &str) -> Statement {
+    pub(crate) fn parse_string(mut self, command: &str) -> ParserResult<Statement> {
         //(|set| {})
         let mut scanner = Scanner::new(command);
 
@@ -41,74 +65,80 @@ impl CmdParser {
         self.statement()
     }
 
-    fn statement(&mut self) -> Statement {
-        let token = self.consume();
+    fn statement(&mut self) -> ParserResult<Statement> {
+        let token = self.consume()?;
         match token.t {
             TokenType::Get => self.get_statement(),
-            _ => panic!("Parser Error: Expected unexpected operation"),
+            _ => Err(ParserError::new(
+                self.current,
+                "Parser Error: Expected unexpected operation",
+            )),
         }
     }
 
-    fn get_statement(&mut self) -> Statement {
-        let columns = self.multiple();
+    fn get_statement(&mut self) -> ParserResult<Statement> {
+        let columns = self.multiple()?;
         let mut tables = None;
         let mut condition = None;
 
-        if self.peek_expect(TokenType::At) {
+        if self.peek_expect(TokenType::At)? {
             self.consume();
-            tables = Some(self.term());
+            tables = Some(self.term()?);
         }
 
-        if self.peek_expect(TokenType::Where) {
+        if self.peek_expect(TokenType::Where)? {
             self.consume();
-            condition = Some(self.conditional());
+            condition = Some(self.conditional()?);
         }
 
-        Statement::Get(columns, tables, condition)
+        Ok(Statement::Get(columns, tables, condition))
     }
 
-    fn conditional(&mut self) -> Expr {
-        let mut left = self.comparison();
+    fn conditional(&mut self) -> ParserResult<Expr> {
+        let mut left = self.comparison()?;
 
-        while !self.finished() && matches!(self.current().t, TokenType::And | TokenType::Or) {
-            let operator = self.consume();
-            let right = self.comparison();
+        while !self.finished() && matches!(self.current()?.t, TokenType::And | TokenType::Or) {
+            let operator = self.consume()?;
+            let right = self.comparison()?;
             left = Expr::Conditional(Box::new(left), operator, Box::new(right));
         }
 
-        left
+        Ok(left)
     }
 
-    fn comparison(&mut self) -> Expr {
-        let left = self.term();
-        let operator = self.consume_if(|t| matches!(t, TokenType::Equals));
-        let right = self.term();
+    fn comparison(&mut self) -> ParserResult<Expr> {
+        let left = self.term()?;
+        let operator = self.consume_if(|t| matches!(t, TokenType::Equals))?;
+        let right = self.term()?;
 
-        Expr::Conditional(Box::new(left), operator, Box::new(right))
+        Ok(Expr::Conditional(Box::new(left), operator, Box::new(right)))
     }
 
-    fn multiple(&mut self) -> Expr {
-        let mut left = self.term();
+    fn multiple(&mut self) -> ParserResult<Expr> {
+        let mut left = self.term()?;
 
         while !self.finished()
             && matches!(
-                self.current().t,
+                self.current()?.t,
                 TokenType::Identifier | TokenType::QuotedValue
             )
         {
-            let right = self.term();
+            let right = self.term()?;
             left = Expr::Multiple(Box::new(left), Box::new(right));
         }
 
-        left
+        Ok(left)
     }
 
-    fn term(&mut self) -> Expr {
-        let current = self.consume();
+    fn term(&mut self) -> ParserResult<Expr> {
+        let current = self.consume()?;
 
         match current.t {
-            TokenType::Identifier | TokenType::QuotedValue => Expr::Literal(current),
-            _ => panic!("Parser Error: Expected identifier, got {:?}", current.t),
+            TokenType::Identifier | TokenType::QuotedValue => Ok(Expr::Literal(current)),
+            _ => Err(ParserError::new(
+                self.current,
+                &format!("Parser Error: Expected identifier, got {:?}", current.t),
+            )),
         }
     }
 
@@ -116,19 +146,26 @@ impl CmdParser {
         self.current >= self.tokens.len()
     }
 
-    fn current(&self) -> &Token {
+    fn current(&self) -> ParserResult<&Token> {
         if self.current >= self.tokens.len() {
-            panic!("Parser Error: Reached end of tokens");
+            return Err(ParserError::new(
+                self.current,
+                "Praser Error: Reached end of tokens",
+            ));
         }
 
-        self.tokens
+        Ok(self
+            .tokens
             .get(self.current)
-            .expect("Something really bad happened")
+            .expect("Something really bad happened"))
     }
 
-    fn consume(&mut self) -> Rc<Token> {
+    fn consume(&mut self) -> ParserResult<Rc<Token>> {
         if self.current >= self.tokens.len() {
-            panic!("Parser Error: Reached end of tokens");
+            return Err(ParserError::new(
+                0,
+                "Parser Error: Unexpected end of tokens",
+            ));
         }
 
         let token = self
@@ -136,29 +173,24 @@ impl CmdParser {
             .get(self.current)
             .expect("Something really bad happened");
         self.current += 1;
-        token.clone()
+        Ok(token.clone())
     }
 
-    fn consume_expect(&mut self, expected: TokenType) -> Rc<Token> {
-        let token = self.consume();
-        if token.t != expected {
-            panic!(
-                "Parser Error: Expected token {:?}, found {:?}",
-                expected, token.t
-            );
-        }
-        token.clone()
-    }
-
-    fn consume_if<F>(&mut self, predicate: F) -> Rc<Token>
+    fn consume_if<F>(&mut self, predicate: F) -> ParserResult<Rc<Token>>
     where
         F: Fn(&TokenType) -> bool,
     {
-        let token = self.consume();
+        let token = self.consume()?;
         if !predicate(&token.t) {
-            panic!("Parser Error: Unexpected token {:?}", token.t);
+            return Err(ParserError::new(
+                token.position,
+                &format!(
+                    "Parser Error: Unexpected token {:?}",
+                    token.literal.to_string()
+                ),
+            ));
         }
-        token
+        Ok(token)
     }
 }
 
@@ -205,7 +237,7 @@ mod tests {
     #[test]
     fn test_get_single_column() {
         let p = CmdParser::new();
-        let statement = p.parse_string("get name");
+        let statement = p.parse_string("get name").unwrap();
 
         match statement {
             Statement::Get(expr, None, None) => {
@@ -219,7 +251,7 @@ mod tests {
     #[test]
     fn test_get_multiple_columns() {
         let p = CmdParser::new();
-        let statement = p.parse_string("get name age city");
+        let statement = p.parse_string("get name age city").unwrap();
 
         match statement {
             Statement::Get(expr, None, None) => {
@@ -233,7 +265,7 @@ mod tests {
     #[test]
     fn test_ast_structure_two_columns() {
         let p = CmdParser::new();
-        let statement = p.parse_string("get a b");
+        let statement = p.parse_string("get a b").unwrap();
 
         match statement {
             Statement::Get(Expr::Multiple(left, right), None, None) => {
@@ -254,9 +286,8 @@ mod tests {
     #[test]
     fn test_get_with_table_identifier() {
         let p = CmdParser::new();
-        let statement = p.parse_string("get name @ users");
+        let statement = p.parse_string("get name @ users").unwrap();
 
-        dbg!(&statement);
         match statement {
             Statement::Get(cols, Some(table), None) => {
                 assert_eq!(extract_columns(&cols), vec!["name"]);
@@ -269,7 +300,7 @@ mod tests {
     #[test]
     fn test_get_with_table_quoted() {
         let p = CmdParser::new();
-        let statement = p.parse_string("get name @ \"users\"");
+        let statement = p.parse_string("get name @ \"users\"").unwrap();
 
         match statement {
             Statement::Get(cols, Some(table), None) => {
@@ -281,23 +312,25 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "Parser Error")]
-    fn test_empty_get_panics() {
+    fn test_empty_get_returns_error() {
         let p = CmdParser::new();
-        p.parse_string("get");
+        let result = p.parse_string("get");
+        assert!(result.is_err());
     }
 
     #[test]
-    #[should_panic(expected = "Parser Error")]
-    fn test_invalid_statement_panics() {
+    fn test_invalid_statement_returns_error() {
         let p = CmdParser::new();
-        p.parse_string("select name");
+        let result = p.parse_string("select name");
+        assert!(result.is_err());
     }
 
     #[test]
     fn test_get_with_where_condition() {
         let p = CmdParser::new();
-        let statement = p.parse_string(r#"get name @ users where first = "john""#);
+        let statement = p
+            .parse_string(r#"get name @ users where first = "john""#)
+            .unwrap();
 
         match statement {
             Statement::Get(cols, Some(table), Some(condition)) => {
