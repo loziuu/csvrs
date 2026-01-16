@@ -82,12 +82,12 @@ impl CmdParser {
         let mut condition = None;
 
         if self.peek_expect(TokenType::At)? {
-            self.consume();
+            self.consume()?;
             tables = Some(self.term()?);
         }
 
         if self.peek_expect(TokenType::Where)? {
-            self.consume();
+            self.consume()?;
             condition = Some(self.conditional()?);
         }
 

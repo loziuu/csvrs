@@ -1,6 +1,8 @@
 use crate::executor::ColumnarExecutor;
 use crate::mem::read_columnar;
 use clap::Parser;
+use rustyline::DefaultEditor;
+use rustyline::error::ReadlineError;
 use std::io::{self, Write};
 use std::path::PathBuf;
 
@@ -36,20 +38,30 @@ fn main() -> std::io::Result<()> {
     println!("Available columns: {:?}", set.columns.keys());
     println!(" ('exit' to quit): ");
 
+    let mut rl = DefaultEditor::new().expect("Failed to create editor");
     let stdout = io::stdout();
+
     loop {
-        let mut out = stdout.lock();
-        out.write_all(b"@> ").unwrap();
-        out.flush().unwrap();
-
-        let index_visitor = ColumnarExecutor { set: &set };
-
-        let mut input = String::new();
-        let _ = std::io::stdin().read_line(&mut input)?;
+        let input = match rl.readline("@> ") {
+            Ok(line) => {
+                let _ = rl.add_history_entry(&line);
+                line
+            }
+            Err(ReadlineError::Interrupted | ReadlineError::Eof) => {
+                return Ok(());
+            }
+            Err(err) => {
+                eprintln!("Error: {:?}", err);
+                return Ok(());
+            }
+        };
 
         if input.trim() == "exit" {
             return Ok(());
         }
+
+        let mut out = stdout.lock();
+        let index_visitor = ColumnarExecutor { set: &set };
 
         let parsed = CmdParser::new();
         let statement = parsed.parse_string(input.trim());
